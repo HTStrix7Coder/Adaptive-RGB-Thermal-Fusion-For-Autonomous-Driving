@@ -1,0 +1,216 @@
+# ============================================================================
+# Python
+# ============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ============================================================================
+# Virtual Environments
+# ============================================================================
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+conda/
+.conda/
+
+# ============================================================================
+# PyTorch / ML Models & Checkpoints
+# ============================================================================
+# Model checkpoints (large files)
+*.pth
+*.pt
+*.pkl
+*.h5
+*.ckpt
+checkpoints/**/*.pth
+checkpoints/**/*.pt
+
+# TensorRT engines
+*.engine
+*.trt
+
+# ONNX models
+*.onnx
+*.onnx.data
+
+# YOLO weights
+*.pt
+yolo*.pt
+
+# ============================================================================
+# Dataset Files (Large - should not be committed)
+# ============================================================================
+# FLIR ADAS dataset - ignore all image/video files
+data/FLIR_ADAS_1_3/train/RGB/**/*.jpg
+data/FLIR_ADAS_1_3/train/RGB/**/*.jpeg
+data/FLIR_ADAS_1_3/train/thermal_8_bit/**/*.jpeg
+data/FLIR_ADAS_1_3/train/thermal_16_bit/**/*.tiff
+data/FLIR_ADAS_1_3/train/Annotated_thermal_8_bit/**/*.jpeg
+
+data/FLIR_ADAS_1_3/val/RGB/**/*.jpg
+data/FLIR_ADAS_1_3/val/RGB/**/*.jpeg
+data/FLIR_ADAS_1_3/val/thermal_8_bit/**/*.jpeg
+data/FLIR_ADAS_1_3/val/thermal_16_bit/**/*.tiff
+data/FLIR_ADAS_1_3/val/Annotated_thermal_8_bit/**/*.jpeg
+
+data/FLIR_ADAS_1_3/video/RGB/**/*.jpg
+data/FLIR_ADAS_1_3/video/RGB/**/*.jpeg
+data/FLIR_ADAS_1_3/video/thermal_8_bit/**/*.jpeg
+data/FLIR_ADAS_1_3/video/thermal_16_bit/**/*.tiff
+data/FLIR_ADAS_1_3/video/Annotated_thermal_8_bit/**/*.jpeg
+
+# Keep annotation JSON files (small, important)
+!data/FLIR_ADAS_1_3/**/*.json
+!data/FLIR_ADAS_1_3/**/*.md
+!data/FLIR_ADAS_1_3/**/*.pdf
+!data/FLIR_ADAS_1_3/**/*.png
+
+# ============================================================================
+# Results & Outputs
+# ============================================================================
+# Large video files
+results/**/*.mp4
+results/**/*.avi
+results/**/*.mov
+results/**/*.mkv
+
+# Large visualization images (keep small ones like diagrams)
+results/visualizations/*.png
+results/visualizations/*.jpg
+results/visualizations/*.jpeg
+
+# Keep important diagrams
+!results/Workflow_diagram.png
+!results/Feature-Pyramid-Network.png
+!results/visualizations/comparison_grid.png
+!results/visualizations/vlcsnap-*.png
+
+# Evaluation metrics (can be large, but might want to track)
+# Uncomment if you don't want to track metrics
+# results/**/*.json
+
+# ============================================================================
+# MLflow & Experiment Tracking
+# ============================================================================
+mlruns/
+.mlflow/
+mlflow.db
+wandb/
+.wandb/
+
+# ============================================================================
+# Jupyter Notebooks
+# ============================================================================
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+
+# ============================================================================
+# IDE & Editor Files
+# ============================================================================
+# VSCode
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# ============================================================================
+# OS Files
+# ============================================================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# ============================================================================
+# Logs & Temporary Files
+# ============================================================================
+*.log
+*.log.*
+logs/
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+
+# ============================================================================
+# Environment & Secrets
+# ============================================================================
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+secrets/
+.secrets
+
+# ============================================================================
+# Project Specific
+# ============================================================================
+# Keep config files but ignore large data
+# Config/ files are kept (small JSON files)
+
+# Temporary test outputs
+test_outputs/
+tmp/
+temp/
+
+# Large model files in root
+*.engine
+*.onnx
+*.onnx.data
+

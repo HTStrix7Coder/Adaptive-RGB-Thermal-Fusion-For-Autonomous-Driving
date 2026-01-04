@@ -1,0 +1,280 @@
+{
+  "model": {
+    "name": "ThermalRGB2DNet",
+    "num_classes": 3,
+    "pretrained": true,
+    "backbone": "resnet18",
+    "use_fpn": true,
+    "use_bn": true,
+    "backbone_details": {
+      "rgb_encoder": "ResNet18",
+      "thermal_encoder": "ResNet18",
+      "fpn_out_channels": 256,
+      "rationale": "ResNet18 chosen for better parameter-to-data ratio (8k samples). ResNet50 has higher overfitting risk."
+    },
+    "fusion": {
+      "type": "CrossModalAttention",
+      "in_channels": 256,
+      "reduction_factor": 8
+    },
+    "detection_head": {
+      "in_channels": 256,
+      "hidden_channels": [512, 256, 128],
+      "num_classes": 3,
+      "dropout_rate": 0.3,
+      "use_batch_norm": true
+    },
+    "architecture_improvements": {
+      "fpn": {
+        "enabled": true,
+        "description": "Feature Pyramid Network for multi-scale detection",
+        "benefit": "Better detection of objects at different sizes"
+      },
+      "batch_norm": {
+        "enabled": true,
+        "description": "BatchNorm + Dropout in detection head",
+        "benefit": "Prevents overfitting, stabilizes training"
+      }
+    }
+  },
+  "training": {
+    "num_epochs": 30,
+    "batch_size": 8,
+    "img_height": 512,
+    "img_width": 640,
+    "device": "cuda",
+    "experiment_name": "thermal_rgb_2d_yolo",
+    "checkpoint_dir": "checkpoints/thermal_rgb_2d_yolo",
+    "min_epochs": 10,
+    "early_stopping_patience": 15,
+    "early_stopping_rationale": "Minimum 10 epochs ensures warmup + convergence. Patience of 15 allows FPN to learn multi-scale features."
+  },
+  "optimizer": {
+    "type": "AdamW",
+    "learning_rate": 0.00005,
+    "weight_decay": 0.00005,
+    "betas": [0.9, 0.999],
+    "eps": 1e-08,
+    "rationale": {
+      "learning_rate": "Reduced from 1e-4 to 5e-5 to prevent overfitting",
+      "weight_decay": "Increased from 1e-5 to 5e-5 for better regularization"
+    }
+  },
+  "scheduler": {
+    "type": "LambdaLR",
+    "warmup_epochs": 3,
+    "warmup_type": "linear",
+    "annealing_type": "cosine",
+    "eta_min": 0.000001,
+    "description": "Learning rate warmup (3 epochs) + cosine annealing for smooth convergence"
+  },
+  "loss": {
+    "type": "YOLO2DLoss",
+    "num_classes": 3,
+    "lambda_box": 5.0,
+    "lambda_obj": 1.0,
+    "lambda_noobj": 0.5,
+    "lambda_cls": 1.0,
+    "use_focal_loss": true,
+    "use_giou_loss": true,
+    "focal_alpha": 0.25,
+    "focal_gamma": 2.0,
+    "loss_improvements": {
+      "focal_loss": {
+        "enabled": true,
+        "description": "Focal Loss for objectness and classification",
+        "benefit": "Better handling of class imbalance, focuses on hard examples"
+      },
+      "giou_loss": {
+        "enabled": true,
+        "description": "Generalized IoU Loss for bounding box regression",
+        "benefit": "More robust than L1/L2 loss, better localization accuracy"
+      }
+    }
+  },
+  "data_loader": {
+    "num_workers": 6,
+    "pin_memory": true,
+    "prefetch_factor": 2,
+    "persistent_workers": true,
+    "drop_last": false,
+    "shuffle": {
+      "train": true,
+      "val": false
+    }
+  },
+  "performance": {
+    "use_amp": true,
+    "use_compile": false,
+    "compile_mode": "reduce-overhead",
+    "non_blocking_transfer": true,
+    "mixed_precision": {
+      "enabled": true,
+      "scaler_enabled": true,
+      "dtype": "float16"
+    },
+    "optimizations": {
+      "fp16_training": "~2x speedup on RTX 4060 Ti",
+      "non_blocking": "Async GPU data transfer",
+      "increased_workers": "Better CPU-GPU parallelism",
+      "loss_vectorization": "Vectorized loss computation (3x speedup) - replaced nested Python loops with tensor operations"
+    }
+  },
+  "dataset": {
+    "name": "FLIR_ADAS_1_3",
+    "train_split": "train",
+    "val_split": "val",
+    "train_samples": 8347,
+    "val_samples": 1256,
+    "pairs_config": "Config/clean_pairs.json",
+    "annotations": {
+      "train": "data/FLIR_ADAS_1_3/train/thermal_annotations.json",
+      "val": "data/FLIR_ADAS_1_3/val/thermal_annotations.json"
+    },
+    "classes": {
+      "0": "car",
+      "1": "person",
+      "2": "bicycle"
+    },
+    "augmentation": {
+      "train": {
+        "horizontal_flip": {
+          "p": 0.5
+        },
+        "affine": {
+          "translate_percent": 0.05,
+          "scale": [0.9, 1.1],
+          "rotate": [-10, 10],
+          "p": 0.3
+        },
+        "random_brightness_contrast": {
+          "brightness_limit": 0.3,
+          "contrast_limit": 0.3,
+          "p": 0.6
+        },
+        "color_jitter": {
+          "brightness": 0.2,
+          "contrast": 0.2,
+          "saturation": 0.2,
+          "hue": 0.1,
+          "p": 0.4
+        },
+        "gauss_noise": {
+          "var_limit": [5.0, 15.0],
+          "p": 0.4
+        },
+        "gaussian_blur": {
+          "blur_limit": 3,
+          "p": 0.2
+        },
+        "coarse_dropout": {
+          "max_holes": 8,
+          "max_height": 32,
+          "max_width": 32,
+          "fill_value": 0,
+          "p": 0.3
+        },
+        "normalize": {
+          "mean": [0.485, 0.456, 0.406],
+          "std": [0.229, 0.224, 0.225]
+        },
+        "rationale": "Stronger augmentations to prevent overfitting"
+      },
+      "val": {
+        "normalize": {
+          "mean": [0.485, 0.456, 0.406],
+          "std": [0.229, 0.224, 0.225]
+        }
+      }
+    }
+  },
+  "logging": {
+    "framework": "MLflow",
+    "tracking_uri": "file:./mlruns",
+    "experiment_name": "thermal_rgb_2d_yolo",
+    "log_metrics": ["train_loss", "val_loss"],
+    "log_params": true,
+    "save_model": true
+  },
+  "checkpointing": {
+    "save_best": true,
+    "save_frequency": null,
+    "monitor_metric": "val_loss",
+    "mode": "min"
+  },
+  "evaluation": {
+    "iou_thresholds": [0.5, 0.75],
+    "confidence_threshold_range": [0.3, 0.7],
+    "nms_iou_threshold": 0.5,
+    "topk": 100,
+    "metrics": ["precision", "recall", "f1_score", "map", "per_image_accuracy"]
+  },
+  "hardware": {
+    "gpu": "RTX 4060 Ti",
+    "gpu_memory_gb": 8,
+    "optimized_for": "RTX 4060 Ti 8GB"
+  },
+  "improvements_summary": {
+    "architecture": [
+      "Feature Pyramid Network (FPN) for multi-scale detection",
+      "BatchNorm + Dropout in detection head",
+      "ResNet18 backbone (better for small datasets)"
+    ],
+    "loss_functions": [
+      "Focal Loss for objectness and classification",
+      "GIoU Loss for bounding box regression"
+    ],
+    "training_techniques": [
+      "Learning rate warmup (3 epochs)",
+      "Cosine annealing scheduler",
+      "Early stopping with minimum epochs",
+      "Stronger data augmentation"
+    ],
+    "regularization": [
+      "Reduced learning rate (5e-5)",
+      "Increased weight decay (5e-5)",
+      "BatchNorm and Dropout",
+      "Stronger augmentations"
+    ]
+  },
+    "expected_performance": {
+    "training_time": {
+      "per_epoch": "~10-12 minutes (with FPN + vectorized loss)",
+      "total_30_epochs": "~5-6 hours (optimized from 16 hours with vectorization)",
+      "speedup": "3x faster after loss function vectorization"
+    },
+    "model_metrics": {
+      "parameters": "~22M (ResNet18) vs ~50M (ResNet50)",
+      "parameters_per_sample": "~2,600 (ResNet18) vs ~6,000 (ResNet50)",
+      "memory_usage": "~3.5-4GB with FP16"
+    },
+    "detection_metrics": {
+      "map_at_0.5": "50-65% (realistic), 65-75% (optimistic)",
+      "precision": "40-60%",
+      "recall": "45-65%",
+      "f1_score": "42-62%",
+      "note": "Significant improvement expected from previous 7% performance"
+    },
+    "gpu_utilization": "90-95%"
+  },
+  "notes": {
+    "description": "Hyperparameters for Thermal-RGB 2D Detection with FPN, Focal Loss, and GIoU Loss",
+    "key_changes": [
+      "Switched from ResNet50 to ResNet18 for better data efficiency",
+      "Added FPN for multi-scale detection",
+      "Enabled Focal Loss and GIoU Loss",
+      "Implemented learning rate warmup + cosine annealing",
+      "Added early stopping with minimum epoch guarantee",
+      "Strengthened data augmentation to prevent overfitting",
+      "Vectorized loss function computation (3x training speedup)"
+    ],
+    "rationale": {
+      "resnet18": "Better parameter-to-data ratio reduces overfitting risk on 8k samples",
+      "fpn": "Improves detection of objects at different scales",
+      "focal_loss": "Handles class imbalance better than standard BCE",
+      "giou_loss": "More robust bbox regression than L1/L2",
+      "warmup": "Prevents early training instability",
+      "early_stopping": "Prevents overfitting while ensuring minimum training time"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "base_path": "data",
+  "thermal_folders": [
+    "data\\FLIR_ADAS_1_3\\train\\Annotated_thermal_8_bit",
+    "data\\FLIR_ADAS_1_3\\train\\thermal_8_bit",
+    "data\\FLIR_ADAS_1_3\\val\\Annotated_thermal_8_bit",
+    "data\\FLIR_ADAS_1_3\\val\\thermal_8_bit",
+    "data\\FLIR_ADAS_1_3\\video\\Annotated_thermal_8_bit",
+    "data\\FLIR_ADAS_1_3\\video\\thermal_8_bit"
+  ],
+  "rgb_folders": [
+    "data\\FLIR_ADAS_1_3\\train\\RGB",
+    "data\\FLIR_ADAS_1_3\\val\\RGB",
+    "data\\FLIR_ADAS_1_3\\video\\RGB"
+  ],
+  "train_folders": [],
+  "val_folders": []
+}
