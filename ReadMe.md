@@ -184,7 +184,7 @@ Documented 14 resolved errors (e.g., multi-scale bugs, loss normalization). Key 
 - Performance: ResNet50, stronger augs, pretraining.
 
 ## Acknowledgments
-Built solo as an academic project. Uses FLIR ADAS dataset, PyTorch, Ultralytics YOLO.
+Built solo as an personal project. Uses FLIR ADAS dataset, PyTorch, Ultralytics YOLO.
 
 For questions: [harinderant077@gmail.com](mailto:harinderant077@gmail.com)
 
