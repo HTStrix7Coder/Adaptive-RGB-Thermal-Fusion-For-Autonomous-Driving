@@ -10,7 +10,7 @@ Watch the quadrant demo video showing day-to-night transitions with adaptive att
 ![Detection Demo Video](results/visualizations/vlcsnap-2026-01-04-18h27m03s072.png)
 (https://drive.google.com/file/d/14tuW8V7fiL4jW1lBqRvoarsLdZDhkr1h/view?usp=sharing)
 
-*Click the image above to download/view the demo video*
+*Click the above Google Drive link to see the demo video*
 
 Example visualizations:
 
