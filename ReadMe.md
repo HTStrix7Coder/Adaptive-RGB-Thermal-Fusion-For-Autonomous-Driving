@@ -7,7 +7,7 @@
 ## Demo
 Watch the quadrant demo video showing day-to-night transitions with adaptive attention shifting:
 
-[![Detection Demo Video](results/visualizations/vlcsnap-2026-01-04-18h27m03s072.png)](results/detection_demo_final_v2.mp4)
+[![Detection Demo Video](results/visualizations/vlcsnap-2026-01-04-18h27m03s072.png)]([results/detection_demo_final_v2.mp4](https://drive.google.com/file/d/14tuW8V7fiL4jW1lBqRvoarsLdZDhkr1h/view?usp=sharing))
 
 *Click the image above to download/view the demo video*
 
