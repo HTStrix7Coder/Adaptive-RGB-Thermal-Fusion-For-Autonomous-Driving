@@ -13,9 +13,6 @@ Watch the quadrant demo video showing day-to-night transitions with adaptive att
 
 Example visualizations:
 
-- **Day Scene**: RGB-dominant attention for fine details.
-  ![Day Detection Example 1](results/visualizations/detection_FLIR_08863.png)
-
 - **Night Scene**: Thermal-dominant attention for heat signatures.
   ![Night Detection Example 1](results/visualizations/detection_FLIR_08870.png)
 
