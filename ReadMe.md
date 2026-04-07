@@ -4,13 +4,6 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat&logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
-## Demo
-Watch the quadrant demo video showing day-to-night transitions with adaptive attention shifting:
-
-[![Detection Demo Video](results\visualizations\vlcsnap-2026-01-04-18h27m03s072.png)](results/detection_demo_final_v2.mp4)
-
-*Click the image above to download/view the demo video*
-
 Example visualizations:
 
 - **Day Scene**: RGB-dominant attention — the model trusts the regular camera for textures and color details.
