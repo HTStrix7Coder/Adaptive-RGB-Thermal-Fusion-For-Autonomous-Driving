@@ -72,9 +72,9 @@ def get_transforms(split='train', image_size=(512, 640)):
                 p=0.6
             ),
             A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.4),  # Color augmentation
-            A.GaussNoise(var_limit=(5.0, 15.0), p=0.4),  # Fixed: var_limit should be tuple
+            A.GaussNoise(std_range=(0.2, 0.4), p=0.4),  # Updated to recent albumentations syntax
             A.GaussianBlur(blur_limit=3, p=0.2),  # Add blur
-            A.CoarseDropout(max_holes=8, max_height=32, max_width=32, fill_value=0, p=0.3),  # Cutout-like augmentation
+            A.CoarseDropout(num_holes_range=(1, 8), hole_height_range=(8, 32), hole_width_range=(8, 32), fill=0, p=0.3),  # Cutout-like augmentation
             A.Normalize(
                 mean=[0.485, 0.456, 0.406],  # pyright: ignore[reportArgumentType]
                 std=[0.229, 0.224, 0.225]  # pyright: ignore[reportArgumentType]

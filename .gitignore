@@ -81,11 +81,20 @@ data/FLIR_ADAS_1_3/video/thermal_8_bit/**/*.jpeg
 data/FLIR_ADAS_1_3/video/thermal_16_bit/**/*.tiff
 data/FLIR_ADAS_1_3/video/Annotated_thermal_8_bit/**/*.jpeg
 
+# FLIR YOLO formatted dataset
+data/FLIR_YOLO/
+
 # Keep annotation JSON files (small, important)
 !data/FLIR_ADAS_1_3/**/*.json
 !data/FLIR_ADAS_1_3/**/*.md
 !data/FLIR_ADAS_1_3/**/*.pdf
 !data/FLIR_ADAS_1_3/**/*.png
+
+# ============================================================================
+# Runs & Checkpoints
+# ============================================================================
+runs/
+checkpoints/
 
 # ============================================================================
 # Results & Outputs
@@ -96,26 +105,25 @@ results/**/*.avi
 results/**/*.mov
 results/**/*.mkv
 
-# Large visualization images (keep small ones like diagrams)
-results/visualizations/*.png
-results/visualizations/*.jpg
-results/visualizations/*.jpeg
+# Large visualization images (keep specific diagrams and sample detections)
+results/visualizations/**/*.jpg
+results/visualizations/**/*.jpeg
 
-# Keep important diagrams
+# Keep important diagrams and sample visualizations
 !results/Workflow_diagram.png
 !results/Feature-Pyramid-Network.png
-!results/visualizations/comparison_grid.png
-!results/visualizations/vlcsnap-*.png
-
-# Evaluation metrics (can be large, but might want to track)
-# Uncomment if you don't want to track metrics
-# results/**/*.json
+!results/visualizations/dynamic_trust_curve.png
+!results/visualizations/short_deployment_flow.png
+!results/visualizations/resnet18/
+!results/visualizations/Convnext_tiny/
 
 # ============================================================================
 # MLflow & Experiment Tracking
 # ============================================================================
 mlruns/
 .mlflow/
+*.db
+*.db-journal
 mlflow.db
 wandb/
 .wandb/

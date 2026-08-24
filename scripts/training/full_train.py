@@ -296,12 +296,60 @@ def train(config):
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     best_val = float('inf')
-    patience = config.get('early_stopping_patience', 15)  # Increased for new architecture (was 10)
-    min_epochs = config.get('min_epochs', 20)  # Minimum epochs before early stopping can trigger
+    patience = config.get('early_stopping_patience', 15)
+    min_epochs = config.get('min_epochs', 20)
     patience_counter = 0
     best_epoch = 0
+    start_epoch = 1
     
-    for epoch in range(1, config['num_epochs'] + 1):
+    # ===== Resume from checkpoint if specified =====
+    resume_from = config.get('resume_from', None)
+    if resume_from and os.path.exists(resume_from):
+        print(f"\n🔄 Resuming training from: {resume_from}")
+        checkpoint = torch.load(resume_from, map_location=device, weights_only=False)
+        
+        # Restore model weights
+        model.load_state_dict(checkpoint['model_state_dict'])
+        
+        # Restore optimizer state (momentum, adaptive LR, etc.)
+        if 'optimizer_state_dict' in checkpoint:
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            print("   ✅ Optimizer state restored")
+        
+        # Restore scheduler state
+        if 'scheduler_state_dict' in checkpoint:
+            scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+            print("   ✅ Scheduler state restored")
+        
+        # Restore AMP scaler state
+        if 'scaler_state_dict' in checkpoint and scaler is not None:
+            scaler.load_state_dict(checkpoint['scaler_state_dict'])
+            print("   ✅ AMP scaler state restored")
+        
+        # Restore training progress
+        start_epoch = checkpoint.get('epoch', 0) + 1
+        best_val = checkpoint.get('best_val', checkpoint.get('val_loss', float('inf')))
+        best_epoch = checkpoint.get('best_epoch', checkpoint.get('epoch', 0))
+        patience_counter = checkpoint.get('patience_counter', 0)
+        
+        print(f"   Resuming from epoch {start_epoch}")
+        print(f"   Best val loss so far: {best_val:.4f} (epoch {best_epoch})")
+        print(f"   Patience counter: {patience_counter}/{patience}")
+        current_lr = optimizer.param_groups[0]['lr']
+        print(f"   Current LR: {current_lr:.6f}")
+    elif resume_from:
+        print(f"⚠️ Resume checkpoint not found: {resume_from}")
+        print("   Starting training from scratch.")
+        
+    # Setup CSV Logging
+    import csv
+    log_file = os.path.join(checkpoint_dir, 'training_log.csv')
+    if not resume_from:
+        with open(log_file, mode='w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['epoch', 'train_loss', 'val_loss', 'lr', 'train_brightness_reg', 'val_brightness_reg'])
+    
+    for epoch in range(start_epoch, config['num_epochs'] + 1):
         model.train()
         train_loss = 0.0
         brightness_reg_loss = 0.0
@@ -415,14 +463,31 @@ def train(config):
         if use_brightness_reg:
             reg_info = f", brightness_reg={brightness_reg_loss:.4f}"
         print(f"Epoch {epoch}: train={train_loss:.4f} val={val_loss:.4f}, lr={current_lr:.6f}{reg_info}")
+        
+        # Save to CSV log
+        with open(log_file, mode='a', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([epoch, train_loss, val_loss, current_lr, brightness_reg_loss, val_brightness_reg_loss])
 
         # save best and early stopping
         if val_loss < best_val:
             best_val = val_loss
             best_epoch = epoch
             patience_counter = 0
-            torch.save({'epoch': epoch, 'model_state_dict': model.state_dict(), 'val_loss': val_loss},
-                       os.path.join(checkpoint_dir, "best_model.pth"))
+            save_dict = {
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
+                'val_loss': val_loss,
+                'best_val': best_val,
+                'best_epoch': best_epoch,
+                'patience_counter': patience_counter,
+                'config': config,
+            }
+            if scaler is not None:
+                save_dict['scaler_state_dict'] = scaler.state_dict()
+            torch.save(save_dict, os.path.join(checkpoint_dir, "best_model.pth"))
             print(f"Saved best (val_loss={val_loss:.4f})")
         else:
             patience_counter += 1
@@ -435,28 +500,44 @@ def train(config):
             elif epoch < min_epochs:
                 # Still in minimum training period
                 print(f"  (Early stopping disabled until epoch {min_epochs})")
+        
+        # Always save latest checkpoint every epoch (for crash recovery)
+        latest_dict = {
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'scheduler_state_dict': scheduler.state_dict(),
+            'val_loss': val_loss,
+            'best_val': best_val,
+            'best_epoch': best_epoch,
+            'patience_counter': patience_counter,
+            'config': config,
+        }
+        if scaler is not None:
+            latest_dict['scaler_state_dict'] = scaler.state_dict()
+        torch.save(latest_dict, os.path.join(checkpoint_dir, "latest_model.pth"))
 
     print("Training done. Best val:", best_val)
 
 if __name__ == "__main__":
     cfg = {
-        'experiment_name': 'thermal_rgb_2d_latest_yolo_fixed',  # Updated for Latest YOLO
+        'experiment_name': 'thermal_rgb_2d_convnext_tiny',  # ConvNeXt-Tiny backbone
         'run_name': f'run_{datetime.now().strftime("%Y%m%d_%H%M%S")}',
         'num_epochs': 50,  # Increased from 40 - multi-scale + anchors need more epochs
-        # Optimized batch size for RTX 4060 Ti 8GB with FP16 + multi-scale
-        'batch_size': 6,  # Reduced from 8 - multi-scale (P3+P4+P5) + 3 anchors = 9x more predictions, needs more memory
-        'learning_rate': 1.5e-4,  # Increased from 6e-5 - better for pre-trained backbone + multi-scale
-        'weight_decay': 5e-5,  # Keep same - good regularization
+        # Optimized batch size for RTX 4060 Ti 8GB with FP16 + ConvNeXt-Tiny (larger model)
+        'batch_size': 4,  # Reduced from 6 - ConvNeXt-Tiny is ~2.5x larger than ResNet18, needs less batch size
+        'learning_rate': 5e-5,  # Lower than ResNet18 (1.5e-4) - larger model needs gentler updates to avoid overfitting
+        'weight_decay': 1e-4,  # Slightly higher regularization for larger model
         'num_workers': 6,  # Increased for better CPU-GPU parallelism (try 4-8)
         'img_height': 512,
         'img_width': 640,
         'num_classes': 3,
         'pretrained': True,
         # Performance optimizations
-        'use_amp': True,  # Enable mixed precision (FP16) - ~2x speedup on RTX 4060 Ti
+        'use_amp': True,  # Enable mixed precision (FP16) - ESSENTIAL for ConvNeXt on 8GB VRAM
         'use_compile': False,  # Set True if PyTorch 2.0+ for additional ~20-30% speedup
-        # Architecture improvements (for 65-75% mAP)
-        'backbone': 'resnet18',  # 'resnet18' (recommended) or 'resnet50' - ResNet18 is better for small datasets
+        # Architecture: ConvNeXt-Tiny (2022, Meta AI) - modern CNN matching Swin Transformer
+        'backbone': 'convnext_tiny',  # 'resnet18', 'resnet50', or 'convnext_tiny'
         'use_fpn': True,  # Feature Pyramid Network for multi-scale detection
         'use_bn': True,  # Enable BatchNorm + Dropout in detection head
         # Model architecture choice
@@ -486,6 +567,8 @@ if __name__ == "__main__":
         'use_brightness_regularization': True,  # Enable brightness-aware training to encourage RGB trust in daytime
         'brightness_threshold': 0.55,  # Threshold for bright scenes (nighttime with flashes: 0.40-0.50, daytime: ~0.75)
         'lambda_brightness': 0.1,  # Weight for brightness regularization loss (start with 0.1, can increase to 0.2-0.3)
+        # Resume from checkpoint (set path to resume after crash, or None to train from scratch)
+        'resume_from': 'checkpoints/thermal_rgb_2d_convnext_tiny/latest_model.pth',  # Set to 'checkpoints/thermal_rgb_2d_convnext_tiny/latest_model.pth' to resume
     }
     train(cfg)
 

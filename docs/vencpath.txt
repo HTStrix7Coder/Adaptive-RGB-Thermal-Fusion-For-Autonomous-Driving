@@ -1,0 +1,13 @@
+"C:\Users\harin\ai_lab\Scripts\activate.bat"
+python resume_training.py
+
+python scripts/training/train_dual_yolo.py
+mlflow ui --backend-store-uri runs/mlflow
+
+Pytorch
+Video created: results\detection_demo_convnext_tiny.mp4
+Inference timing (600 frame(s)): total 22.041 s, mean 36.73 ms/frame, 27.2 FPS (inference only)
+
+TensorRT
+Video created: results\detection_demo_convnext_tiny.mp4
+Inference timing (600 frame(s)): total 16.107 s, mean 26.84 ms/frame, 37.3 FPS (inference only)

@@ -206,12 +206,11 @@ def get_attention_map(attention_source, img_idx):
         return attn_tensor.mean(axis=0)
     return attn_tensor
 
-def visualize_detections(model, val_loader, annotations, device, num_samples=10, conf_thresh=0.6,
+def visualize_detections(model, val_loader, annotations, device, num_samples=10, output_dir='results/visualizations', conf_thresh=0.6,
                           img_w=640, img_h=512):
     """Visualize detection results with bounding boxes"""
     
     model.eval()
-    output_dir = 'results/visualizations'
     os.makedirs(output_dir, exist_ok=True)
     
     class_names = {0: 'car', 1: 'person', 2: 'bicycle'}
@@ -494,24 +493,30 @@ if __name__ == "__main__":
     
     # Load model
     print("\n🏗️  Loading model...")
-    checkpoint_path = 'checkpoints/thermal_rgb_2d_latest_yolo/best_model.pth'
+    checkpoint_path = 'checkpoints/thermal_rgb_2d_convnext_tiny/best_model.pth'
     
     if not os.path.exists(checkpoint_path):
         print(f"❌ Checkpoint not found at {checkpoint_path}!")
         print("   Please train a model first or update the checkpoint path.")
         exit(1)
     
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     state_dict = checkpoint['model_state_dict']
     
     has_bn = any('bn' in key for key in state_dict.keys())
     has_fpn = any('fpn' in key for key in state_dict.keys())
     
+    has_convnext = any('rgb_encoder.features' in key for key in state_dict.keys())
+    
     backbone = cfg['backbone']
-    if has_fpn:
+    if has_convnext:
+        backbone = 'convnext_tiny'
+    elif has_fpn:
         if 'rgb_fpn.lateral_c5.weight' in state_dict:
             c5_channels = state_dict['rgb_fpn.lateral_c5.weight'].shape[1]
-            if c5_channels == 2048:
+            if c5_channels == 768:
+                backbone = 'convnext_tiny'
+            elif c5_channels == 2048:
                 backbone = 'resnet50'
             elif c5_channels == 512:
                 backbone = 'resnet18'
@@ -555,8 +560,13 @@ if __name__ == "__main__":
     
     # Load validation data
     print("\n📦 Loading validation data...")
-    _, val_loader = create_dataloaders(cfg['batch_size'], cfg['num_workers'], 
+    from torch.utils.data import DataLoader
+    _, base_val_loader = create_dataloaders(cfg['batch_size'], cfg['num_workers'], 
                                       (cfg['img_height'], cfg['img_width']))
+    
+    # Re-wrap val_loader with shuffle=True to get random images every run
+    val_loader = DataLoader(base_val_loader.dataset, batch_size=cfg['batch_size'], shuffle=True, num_workers=cfg['num_workers'])
+    
     val_annotations = get_annotations_for_split('val')
     print(f"✓ Validation samples: {len(val_loader.dataset)}")   # pyright: ignore[reportArgumentType, reportOptionalMemberAccess]
     
@@ -569,6 +579,7 @@ if __name__ == "__main__":
         val_annotations,
         device,
         num_samples=10,
+        output_dir='results/visualizations/Convnext_tiny',
         conf_thresh=0.45,  # <--- TUNED HIGHER
         img_w=cfg['img_width'],
         img_h=cfg['img_height']
@@ -577,6 +588,7 @@ if __name__ == "__main__":
         model,
         val_loader,
         device,
+        output_dir='results/visualizations/Convnext_tiny',
         num_samples=6,
         img_w=cfg['img_width'],
         img_h=cfg['img_height'],

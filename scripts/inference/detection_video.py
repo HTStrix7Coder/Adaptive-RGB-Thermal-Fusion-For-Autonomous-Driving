@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import torch
 import cv2
 import numpy as np
@@ -89,29 +90,44 @@ class TRTModule(torch.nn.Module):
             else:
                 self.outputs.append(info)
 
-    def forward(self, rgb, thermal):
-        bindings = [None] * self.engine.num_io_tensors
-        
-        for i, tensor in enumerate([rgb, thermal]):
-            tensor = tensor.contiguous()
-            idx = self.inputs[i]["index"]
-            bindings[idx] = tensor.data_ptr()
-            self.context.set_input_shape(self.inputs[i]["name"], tensor.shape)
+        self._in_shape_key = None
+        self._output_buf_list = []
+        self._bindings = [None] * self.engine.num_io_tensors
 
-        output_tensors = []
+    def _ensure_output_buffers(self):
+        self._output_buf_list = []
         for out_info in self.outputs:
-            idx = out_info["index"]
-            out = torch.empty(out_info["shape"], dtype=out_info["dtype"], device=self.device)
-            output_tensors.append(out)
-            bindings[idx] = out.data_ptr()
+            name = out_info["name"]
+            shape = tuple(self.context.get_tensor_shape(name))
+            if any(s < 0 for s in shape):
+                raise RuntimeError(f"TensorRT output {name} has unresolved shape {shape}")
+            self._output_buf_list.append(
+                torch.empty(shape, dtype=out_info["dtype"], device=self.device)
+            )
 
-        self.context.execute_v2(bindings=bindings)
-        
-        result = {}
-        for key, tensor in zip(self.output_mapping, output_tensors):
-            result[key] = tensor
-            
-        return result
+    def forward(self, rgb, thermal):
+        if not rgb.is_contiguous():
+            rgb = rgb.contiguous()
+        if not thermal.is_contiguous():
+            thermal = thermal.contiguous()
+
+        in_key = (tuple(rgb.shape), tuple(thermal.shape))
+        if in_key != self._in_shape_key:
+            self._in_shape_key = in_key
+            for inp_info, t in zip(self.inputs, (rgb, thermal)):
+                self.context.set_input_shape(inp_info["name"], t.shape)
+            self._ensure_output_buffers()
+
+        for inp_info, t in zip(self.inputs, (rgb, thermal)):
+            self._bindings[inp_info["index"]] = t.data_ptr()
+        for out_info, buf in zip(self.outputs, self._output_buf_list):
+            self._bindings[out_info["index"]] = buf.data_ptr()
+
+        ok = self.context.execute_v2(bindings=self._bindings)
+        if ok is False:
+            raise RuntimeError("TensorRT execute_v2 failed")
+
+        return {key: tensor for key, tensor in zip(self.output_mapping, self._output_buf_list)}
 
 class ThreeChannelWrapper(torch.nn.Module):
     """
@@ -466,7 +482,7 @@ def create_detection_video(model, data_loader, device, num_frames=120, fps=8, im
     """Generate detection video with RGB, thermal, attention maps, and fused visualizations."""
     output_dir = 'results'
     os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, 'detection_demo_final_v2.mp4')
+    output_path = os.path.join(output_dir, 'detection_demo_convnext_tiny.mp4')
     
     width, height = 1920, 1080
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # pyright: ignore[reportAttributeAccessIssue]
@@ -476,7 +492,9 @@ def create_detection_video(model, data_loader, device, num_frames=120, fps=8, im
     
     frame_count = 0
     skipped = 0
-    
+    inference_time_sum_s = 0.0
+    inference_samples = 0
+
     with tqdm(total=num_frames, desc="Generating Frames") as pbar:
         for batch in data_loader:
             if frame_count >= num_frames: 
@@ -509,7 +527,18 @@ def create_detection_video(model, data_loader, device, num_frames=120, fps=8, im
                     thermal_batch = thermal_tensor[img_idx:img_idx+1].to(device)
                     
                     with torch.no_grad():
+                        # CUDA is async: without sync, PyTorch can look faster than TRT because the
+                        # timer stops after kernels are queued, not when they finish.
+                        if device.type == "cuda":
+                            torch.cuda.synchronize()
+                        t0 = time.perf_counter()
                         predictions = model(rgb_batch, thermal_batch, return_attention=True)
+                        if device.type == "cuda":
+                            torch.cuda.synchronize()
+                        elapsed_s = time.perf_counter() - t0
+                        inference_time_ms = elapsed_s * 1000
+                        inference_time_sum_s += elapsed_s
+                        inference_samples += 1
                     
                     decoded = decode_preds(
                         predictions, topk=40, conf_thresh=0.5, img_w=img_w, img_h=img_h,
@@ -621,7 +650,7 @@ def create_detection_video(model, data_loader, device, num_frames=120, fps=8, im
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
                     
                     # Model architecture info
-                    model_info = "ResNet18 + FPN | Multi-Scale Detection | Cross-Modal Attention"
+                    model_info = "ConvNeXt-Tiny + FPN | Multi-Scale Detection | Cross-Modal Attention"
                     info_size = cv2.getTextSize(model_info, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
                     info_x = (width - info_size[0]) // 2
                     cv2.putText(frame, model_info, (info_x, 60), 
@@ -715,7 +744,7 @@ def create_detection_video(model, data_loader, device, num_frames=120, fps=8, im
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2, cv2.LINE_AA)
                     
                     # Performance metrics (if available)
-                    metrics_text = "Classes: Car | Person | Bicycle"
+                    metrics_text = f"Classes: Car | Person | Bicycle | Inference: {inference_time_ms:.1f} ms"
                     metrics_size = cv2.getTextSize(metrics_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)[0]
                     cv2.putText(frame, metrics_text, (width - metrics_size[0] - 30, height - 15), 
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (180, 180, 180), 1, cv2.LINE_AA)
@@ -728,6 +757,7 @@ def create_detection_video(model, data_loader, device, num_frames=120, fps=8, im
 
                     out.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
                     frame_count += 1
+                    pbar.set_postfix({'inf_ms': f"{inference_time_ms:.1f}"})
                     pbar.update(1)
                     
                 except Exception as e:
@@ -738,6 +768,17 @@ def create_detection_video(model, data_loader, device, num_frames=120, fps=8, im
     
     out.release()
     print(f"\nVideo created: {output_path}")
+    if inference_samples > 0:
+        mean_ms = (inference_time_sum_s / inference_samples) * 1000
+        inf_fps = inference_samples / inference_time_sum_s
+        print(
+            f"Inference timing ({inference_samples} frame(s)): "
+            f"total {inference_time_sum_s:.3f} s, "
+            f"mean {mean_ms:.2f} ms/frame, "
+            f"{inf_fps:.1f} FPS (inference only)"
+        )
+    else:
+        print("Inference timing: no frames timed (no successful inferences).")
 
 if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -758,20 +799,18 @@ if __name__ == "__main__":
     }
     
     print("\nLoading PyTorch model...")
-    # Try latest checkpoint first, then fallback
-    checkpoint_path = 'checkpoints/thermal_rgb_2d_latest_yolo_v1/best_model.pth'
+    checkpoint_path = 'checkpoints/thermal_rgb_2d_convnext_tiny/best_model.pth'
     if not os.path.exists(checkpoint_path):
-        checkpoint_path = 'checkpoints/thermal_rgb_2d_latest_yolo_v2/best_model.pth'
+        checkpoint_path = 'checkpoints/thermal_rgb_2d_latest_yolo_fixed/best_model.pth'
     
     if not os.path.exists(checkpoint_path):
         print(f"❌ Checkpoint not found. Tried:")
+        print(f"   - checkpoints/thermal_rgb_2d_convnext_tiny/best_model.pth")
         print(f"   - checkpoints/thermal_rgb_2d_latest_yolo_fixed/best_model.pth")
-        print(f"   - checkpoints/thermal_rgb_2d_latest_yolo/best_model.pth")
-        print(f"   - checkpoints/thermal_rgb_2d_yolo_run3/best_model.pth")
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
     
     print(f"✓ Loading checkpoint: {checkpoint_path}")
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     state_dict = checkpoint['model_state_dict']
     
     # Auto-detect model type from checkpoint (like evaluate.py)
@@ -782,10 +821,16 @@ if __name__ == "__main__":
     has_fpn = any('fpn' in key for key in state_dict.keys())
     
     # Determine backbone
+    has_convnext = any('rgb_encoder.features' in key for key in state_dict.keys())
     backbone = 'resnet18'  # Default
-    if has_fpn and 'rgb_fpn.lateral_c5.weight' in state_dict:
+    
+    if has_convnext:
+        backbone = 'convnext_tiny'
+    elif has_fpn and 'rgb_fpn.lateral_c5.weight' in state_dict:
         c5_channels = state_dict['rgb_fpn.lateral_c5.weight'].shape[1]
-        if c5_channels == 2048:
+        if c5_channels == 768:
+            backbone = 'convnext_tiny'
+        elif c5_channels == 2048:
             backbone = 'resnet50'
         elif c5_channels == 512:
             backbone = 'resnet18'
@@ -837,14 +882,19 @@ if __name__ == "__main__":
 
     # Try to use TensorRT for faster inference, fallback to PyTorch if not available
     use_tensorrt = True
-    try:
-        trt_core = compile_and_load_trt(model, device, cfg, engine_path="thermal_model_fp16_3ch.engine")
-        trt_model = ThreeChannelWrapper(trt_core)
-        print("✓ Using TensorRT for inference (faster)")
-    except Exception as e:
-        print(f"⚠️ TensorRT not available or failed: {e}")
-        print("   Falling back to PyTorch inference")
-        use_tensorrt = False
+    
+    if use_tensorrt:
+        try:
+            trt_core = compile_and_load_trt(model, device, cfg, engine_path="thermal_model_fp16_3ch.engine")
+            trt_model = ThreeChannelWrapper(trt_core)
+            print("✓ Using TensorRT for inference (faster)")
+        except Exception as e:
+            print(f"⚠️ TensorRT not available or failed: {e}")
+            print("   Falling back to PyTorch inference")
+            use_tensorrt = False
+            trt_model = model
+    else:
+        print("✓ Using PyTorch for inference (TensorRT disabled)")
         trt_model = model
 
     print("\nLoading validation data...")

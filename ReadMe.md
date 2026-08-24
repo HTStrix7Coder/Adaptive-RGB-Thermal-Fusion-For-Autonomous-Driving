@@ -4,13 +4,18 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat&logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
+## Demo
+Quadrant visualization showing day-to-night transitions with adaptive attention shifting:
+
+![Detection Demo Snapshot](results/visualizations/resnet18/vlcsnap-2026-01-04-18h27m03s072.png)
+
 Example visualizations:
 
 - **Day Scene**: RGB-dominant attention — the model trusts the regular camera for textures and color details.
-  ![Day Detection Example 1](results/visualizations/detection_FLIR_08863.png)
+  ![Day Detection Example 1](results/visualizations/resnet18/detection_FLIR_08863.png)
 
 - **Night Scene**: Thermal-dominant attention — the model shifts trust to the heat camera for detecting warm objects.
-  ![Night Detection Example 1](results/visualizations/detection_FLIR_08870.png)
+  ![Night Detection Example 1](results/visualizations/resnet18/detection_FLIR_08870.png)
 
 ## The Problem
 
@@ -122,6 +127,8 @@ This acts as a **soft, physics-informed prior** — the model is free to overrid
 
 After adding this regularization, the attention maps showed clear day/night differentiation — exactly what we'd expect from a physically meaningful fusion.
 
+![Dynamic Sensor Trust vs Illumination](results/visualizations/dynamic_trust_curve.png)
+
 ### Stage 5: Custom Detection Head (YOLO-Inspired Design)
 
 The fused features feed into a custom-built detection head that follows the YOLO prediction format — predicting per grid cell:
@@ -159,12 +166,15 @@ Raw predictions go through:
 - **Batch Size**: 8 on RTX 4060 Ti (8GB VRAM)
 - **Augmentations**: Horizontal flip, affine, brightness/contrast jitter, Gaussian noise, Gaussian blur, CoarseDropout — same transform applied to both RGB and thermal to maintain spatial alignment
 
-### Deployment
-The trained model is exported through the full deployment pipeline:
+### Deployment Pipeline
+The trained model is exported through the full embedded deployment pipeline:
 ```
 PyTorch (.pth) → ONNX (.onnx) → TensorRT FP16 (.engine, ~57 MB)
 ```
-The TensorRT engine enables real-time inference on NVIDIA edge hardware.
+
+![Edge Deployment Flow](results/visualizations/short_deployment_flow.png)
+
+The TensorRT engine enables real-time inference on NVIDIA edge automotive hardware (e.g. Jetson Orin / Drive AGX).
 
 ## Results
 
@@ -264,80 +274,79 @@ This project is a proof-of-concept for learned RGB-thermal fusion — an approac
 ## Usage
 
 ### Training
-Run full training with MLflow logging:
-```
-python scripts/full_train.py
-```
-- Config: Batch size 8, 30 epochs, AdamW, mixed-precision on RTX 4060 Ti.
-- Outputs: Checkpoints in `checkpoints/`, logs in MLflow.
+1. **Custom ResNet18 / ConvNeXt Multi-Scale Fusion Net**:
+   ```bash
+   python scripts/training/full_train.py
+   ```
+   - Config: Batch size 8, 30 epochs, AdamW, mixed-precision on RTX 4060 Ti.
+   - Outputs: Checkpoints in `checkpoints/`, experiment logs in MLflow.
+
+2. **Dual-Stream Multi-Modal YOLO Training**:
+   ```bash
+   python scripts/training/train_dual_yolo.py
+   ```
 
 ### Evaluation
-Evaluate a model:
-```
-python scripts/evaluate.py --model_path checkpoints/thermal_rgb_2d_latest_yolo_v2/best_model.pth
+Evaluate a trained checkpoint across multiple confidence thresholds:
+```bash
+python scripts/evaluation/evaluate.py --model_path checkpoints/thermal_rgb_2d_latest_yolo_v2/best_model.pth
 ```
 - Metrics: mAP@0.5, mAP@0.75, precision/recall/F1, per-class breakdown.
-- Sweeps confidence thresholds automatically to find optimal operating point.
-- Available checkpoints:
-  - `checkpoints/thermal_rgb_2d_latest_yolo_v1/best_model.pth`
-  - `checkpoints/thermal_rgb_2d_latest_yolo_v2/best_model.pth`
+- Automatically sweeps confidence thresholds to find the optimal precision-recall operating point.
 
-### Visualization
-Generate detection images with attention overlays:
+### Visualization & Attention Maps
+Generate detection images with per-pixel spatial attention overlays:
+```bash
+python scripts/utils/visualize.py --model_path checkpoints/thermal_rgb_2d_latest_yolo_v2/best_model.pth --image_path data/FLIR_ADAS_1_3/val/RGB/FLIR_08863.jpg
 ```
-python scripts/visualize.py --model_path checkpoints/thermal_rgb_2d_latest_yolo_v2/best_model.pth --image_path data/FLIR_ADAS_1_3/val/RGB/FLIR_08863.jpg
-```
-- Outputs: RGB/thermal detection overlays, per-pixel attention maps in `results/visualizations/`.
+- Outputs: RGB/thermal detection overlays, per-pixel attention trust maps in `results/visualizations/`.
 
-### Demo Video
-Create quadrant demo video showing day-to-night transitions:
-```
-python scripts/detection_video.py
+### Video Inference
+Generate side-by-side / quadrant demo videos showing dynamic sensor trust shifting in real driving sequences:
+```bash
+python scripts/inference/detection_video.py
 ```
 - Output: `results/detection_demo_final_v2.mp4`
-- FPS: 8, frames: 600 for smooth playback.
 
 ## Code Structure
 ```
-├── Models/                # Core model architecture
-│   ├── model.py           # ResNetEncoder, FPN, CrossModalAttention, Detection2DHead, ThermalRGB2DNet
-│   ├── model_yolo.py      # ThermalRGB2DNetLatestYOLO (YOLO-inspired custom detection head)
-│   └── dataset.py         # ThermalRGBDataset, augmentations, dataloader creation
-├── utils/                 # Support modules
-│   ├── loss_2d.py         # Detection loss (focal loss, GIoU, objectness)
-│   └── annotations.py    # FLIR ADAS annotation parsing
-├── scripts/               # Executable scripts
-│   ├── full_train.py      # Full training loop with brightness-aware attention loss
-│   ├── evaluate.py        # Evaluation with multi-threshold sweep
-│   ├── visualize.py       # Detection + attention map visualization
-│   ├── detection_video.py # Quadrant demo video generation
-│   └── hyperparameters.json # All training configuration
-├── Config/                # Data configuration
+├── Config/                # Dataset & architecture configurations
 │   ├── clean_pairs.json   # Verified RGB-thermal pair mappings
-│   └── dataset_info.json  # Dataset path info
-├── setup/                 # Setup and verification
+│   ├── dataset_dual.yaml  # Dual-stream dataset configuration
+│   ├── dataset_info.json  # Dataset path and split metadata
+│   └── yolo26s_6ch.yaml   # 6-channel Dual-stream YOLO architecture definition
+├── Models/                # Core multi-modal network architectures
+│   ├── model.py           # ResNetEncoder, FPN, CrossModalAttention, Detection2DHead
+│   ├── model_yolo.py      # ThermalRGB2DNetLatestYOLO (custom detection head)
+│   └── dataset.py         # ThermalRGBDataset, synchronized augmentations, dataloaders
+├── ultralytics_source/    # Customized multi-stream Ultralytics engine integration
+├── scripts/               # Modular executable pipeline scripts
+│   ├── data_prep/         # Data conversion & annotation mapping
+│   │   └── convert_flir_to_yolo.py
+│   ├── training/          # Training loops with brightness-aware attention loss
+│   │   ├── full_train.py
+│   │   ├── train_dual_yolo.py
+│   │   └── hyperparameters.json
+│   ├── evaluation/        # Evaluation & multi-threshold sweeping
+│   │   └── evaluate.py
+│   ├── inference/         # Real-time video inference & smoke tests
+│   │   ├── detection_video.py
+│   │   ├── detection_video_yolo.py
+│   │   └── trust_meter_smoke_test.py
+│   └── utils/             # Visualization, trust curve & deployment plotting
+│       ├── visualize.py
+│       ├── plot_trust_curve.py
+│       └── generate_deployment_diagram.py
+├── utils/                 # Support modules
+│   ├── loss_2d.py         # Focal loss, GIoU, objectness & brightness loss
+│   └── annotations.py    # FLIR ADAS annotation parser
+├── setup/                 # Environment & pair verification
 │   ├── test.py            # Environment verification
 │   └── verifypairs.py     # RGB-thermal pair validation
-├── data/                  # FLIR ADAS dataset
-│   └── FLIR_ADAS_1_3/
-│       ├── train/
-│       ├── val/
-│       └── video/
-├── checkpoints/           # Trained model weights
-│   ├── thermal_rgb_2d_latest_yolo_v1/
-│   └── thermal_rgb_2d_latest_yolo_v2/
-├── results/               # All outputs
-│   ├── detection_demo_final_v1.mp4
-│   ├── detection_demo_final_v2.mp4
-│   ├── Workflow_diagram.png
-│   ├── Feature-Pyramid-Network.png
-│   ├── visualizations/
-│   └── evaluation_metrics_*.json
-├── thermal_model_fp16_3ch.engine   # TensorRT FP16 deployment engine
-├── thermal_model_fp16_3ch.onnx     # ONNX export
-├── yolo11n.pt                      # YOLOv11 nano weights (reference only, not used in fusion model)
-├── requirements.txt
-└── ProjectReadme.md
+├── docs/                  # Architectural notes & technical problem logs
+├── results/               # Model outputs, metric reports, and diagrams
+├── requirements.txt       # Reproducible dependencies
+└── ReadMe.md              # Project documentation
 ```
 
 ## Challenges & Lessons Learned
@@ -357,15 +366,19 @@ python scripts/detection_video.py
 - **Extensions**: Temporal fusion across frames, 3D bounding box estimation, extend to N-way multi-sensor fusion (RGB + thermal + LiDAR + radar)
 - **Inference**: INT8 quantization for faster edge deployment, real-time FPS benchmarking
 
+## References & Literature
+
+- Redmon, J., et al. (2016). *You Only Look Once: Unified, Real-Time Object Detection.* [arXiv:1506.02640](https://arxiv.org/abs/1506.02640).
+- Hu, J., Shen, L., & Sun, G. (2018). *Squeeze-and-Excitation Networks.* [arXiv:1709.01507](https://arxiv.org/abs/1709.01507).
+- FLIR Systems. *FLIR Thermal Starter Dataset for Autonomous Vehicle Research.* [FLIR ADAS](https://www.flir.com/oem/adas/adas-dataset-form/).
+
 ## Acknowledgments
 
-Built independently as an undergraduate academic project. Uses:
+Built as an advanced research and engineering project for all-weather autonomous driving perception. Uses:
 - [FLIR ADAS Dataset v1.3](https://www.flir.com/oem/adas/adas-dataset-form/)
 - [PyTorch](https://pytorch.org/)
 - [Ultralytics YOLO](https://github.com/ultralytics/ultralytics)
 - [Albumentations](https://albumentations.ai/)
 - [MLflow](https://mlflow.org/)
 
-For questions: [harinderant077@gmail.com](mailto:harinderant077@gmail.com)
-
-Last updated: March 2026
+For inquiries: [harinderant077@gmail.com](mailto:harinderant077@gmail.com)

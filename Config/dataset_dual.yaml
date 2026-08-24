@@ -1,0 +1,21 @@
+# Dual-Stream RGB+Thermal YOLO Dataset Configuration
+# Uses 6-channel images (thermal 3ch + RGB 3ch stacked)
+# For use with hacked Ultralytics YOLO source
+
+path: d:/AICode/Self Driving Car/thermal-rgb-2d-detection/data/FLIR_YOLO
+train: 
+  - images/train
+  - images/video
+val: images/val
+
+# 6-channel input: first 3ch = thermal (BGR), last 3ch = RGB (BGR)
+channels: 6
+
+# Number of classes
+nc: 3
+
+# Class names (matching converter output)
+names:
+  0: car
+  1: person
+  2: bicycle

@@ -491,7 +491,7 @@ if __name__ == "__main__":
     val_annos = get_annotations_for_split('val')
 
     # Use the latest training checkpoint
-    ckpt = 'checkpoints/thermal_rgb_2d_latest_yolo_fixed/best_model.pth'
+    ckpt = 'checkpoints/thermal_rgb_2d_convnext_tiny/best_model.pth'
     if not os.path.exists(ckpt):
         # Fallback to run3 if latest doesn't exist yet
         fallback_ckpt = 'checkpoints/thermal_rgb_2d_latest_yolo_run3/best_model.pth'
@@ -505,7 +505,7 @@ if __name__ == "__main__":
             raise RuntimeError(f"Checkpoint not found: {ckpt}")
     
     print(f"✓ Loading checkpoint from: {ckpt}")
-    cp = torch.load(ckpt, map_location=device)
+    cp = torch.load(ckpt, map_location=device, weights_only=False)
     
     # Try to infer architecture from checkpoint state_dict
     state_dict = cp['model_state_dict']
@@ -514,19 +514,29 @@ if __name__ == "__main__":
     
     # Determine backbone from channel sizes in state_dict
     backbone = 'resnet18'  # Default
-    if has_fpn:
+    
+    # Check for ConvNeXt-Tiny first (has 'features' keys instead of 'layer' keys)
+    has_convnext = any('rgb_encoder.features' in key for key in state_dict.keys())
+    
+    if has_convnext:
+        backbone = 'convnext_tiny'
+    elif has_fpn:
         # For FPN models, check lateral layer input channels (more reliable)
         if 'rgb_fpn.lateral_c5.weight' in state_dict:
-            # lateral_c5 input channels: 512 for ResNet18, 2048 for ResNet50
+            # lateral_c5 input channels: 512 for ResNet18, 768 for ConvNeXt-Tiny, 2048 for ResNet50
             c5_channels = state_dict['rgb_fpn.lateral_c5.weight'].shape[1]
-            if c5_channels == 2048:
+            if c5_channels == 768:
+                backbone = 'convnext_tiny'
+            elif c5_channels == 2048:
                 backbone = 'resnet50'
             elif c5_channels == 512:
                 backbone = 'resnet18'
         elif 'rgb_fpn.lateral_c4.weight' in state_dict:
-            # lateral_c4 input channels: 256 for ResNet18, 1024 for ResNet50
+            # lateral_c4 input channels: 256 for ResNet18, 384 for ConvNeXt-Tiny, 1024 for ResNet50
             c4_channels = state_dict['rgb_fpn.lateral_c4.weight'].shape[1]
-            if c4_channels == 1024:
+            if c4_channels == 384:
+                backbone = 'convnext_tiny'
+            elif c4_channels == 1024:
                 backbone = 'resnet50'
             elif c4_channels == 256:
                 backbone = 'resnet18'

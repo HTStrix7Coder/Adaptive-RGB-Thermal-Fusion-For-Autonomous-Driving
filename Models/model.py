@@ -3,27 +3,50 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.models as models
 
-# ----- ResNetEncoder with multi-scale outputs for FPN -----
+# ----- Encoder with multi-scale outputs for FPN -----
+# Supports: ResNet18, ResNet50, ConvNeXt-Tiny
 class ResNetEncoder(nn.Module):
     def __init__(self, pretrained=True, return_intermediate=False, backbone='resnet18'):
         super().__init__()
         self.return_intermediate = return_intermediate
         self.backbone = backbone
         
-        # Load ResNet backbone
-        if backbone == 'resnet18':
+        if backbone == 'convnext_tiny':
+            # ----- ConvNeXt-Tiny (2022, Meta AI) -----
+            # Modern CNN that matches Swin Transformer performance
+            # Stages: 96ch → 192ch → 384ch → 768ch
+            # features[0]=stem, [1]=stage1, [2]=downsample, [3]=stage2,
+            # [4]=downsample, [5]=stage3, [6]=downsample, [7]=stage4
+            weights = models.ConvNeXt_Tiny_Weights.IMAGENET1K_V1 if pretrained else None
+            convnext = models.convnext_tiny(weights=weights)
+            self.features = convnext.features  # Sequential with 8 sub-modules
+            
+            # Channel sizes for FPN (map to C3/C4/C5)
+            # After features[0:2] (stem + stage1):  96ch, 1/4 res  → C2
+            # After features[0:4] (+ stage2):      192ch, 1/8 res  → C3
+            # After features[0:6] (+ stage3):      384ch, 1/16 res → C4
+            # After features[0:8] (+ stage4):      768ch, 1/32 res → C5
+            self.c3_channels = 192
+            self.c4_channels = 384
+            self.c5_channels = 768
+            
+        elif backbone == 'resnet18':
             resnet = models.resnet18(pretrained=pretrained)
             self.c3_channels = 128   # layer2 output
             self.c4_channels = 256   # layer3 output
             self.c5_channels = 512   # layer4 output
+            self._init_resnet(resnet)
         elif backbone == 'resnet50':
             resnet = models.resnet50(pretrained=pretrained)
             self.c3_channels = 512   # layer2 output
             self.c4_channels = 1024  # layer3 output
             self.c5_channels = 2048  # layer4 output
+            self._init_resnet(resnet)
         else:
-            raise ValueError(f"Unsupported backbone: {backbone}. Use 'resnet18' or 'resnet50'")
-        
+            raise ValueError(f"Unsupported backbone: {backbone}. Use 'resnet18', 'resnet50', or 'convnext_tiny'")
+    
+    def _init_resnet(self, resnet):
+        """Extract ResNet layers for forward pass"""
         self.conv1 = resnet.conv1
         self.bn1 = resnet.bn1
         self.relu = resnet.relu
@@ -34,6 +57,35 @@ class ResNetEncoder(nn.Module):
         self.layer4 = resnet.layer4
 
     def forward(self, x):
+        if self.backbone == 'convnext_tiny':
+            return self._forward_convnext(x)
+        else:
+            return self._forward_resnet(x)
+    
+    def _forward_convnext(self, x):
+        """ConvNeXt forward pass with multi-scale outputs"""
+        # features[0] = stem (Conv2d 4×4 stride 4 + LayerNorm) → 96ch, 1/4 res
+        # features[1] = stage1 blocks (CNBlock × 3)             → 96ch, 1/4 res
+        c2 = self.features[1](self.features[0](x))   # 96ch, 1/4 res
+        
+        # features[2] = downsample (LayerNorm + Conv2d 2×2 stride 2) → 192ch
+        # features[3] = stage2 blocks (CNBlock × 3)                  → 192ch, 1/8 res
+        c3 = self.features[3](self.features[2](c2))   # 192ch, 1/8 res
+        
+        # features[4] = downsample → 384ch
+        # features[5] = stage3 blocks (CNBlock × 9)  → 384ch, 1/16 res
+        c4 = self.features[5](self.features[4](c3))   # 384ch, 1/16 res
+        
+        # features[6] = downsample → 768ch
+        # features[7] = stage4 blocks (CNBlock × 3)  → 768ch, 1/32 res
+        c5 = self.features[7](self.features[6](c4))   # 768ch, 1/32 res
+        
+        if self.return_intermediate:
+            return {'c2': c2, 'c3': c3, 'c4': c4, 'c5': c5}
+        return c5
+    
+    def _forward_resnet(self, x):
+        """ResNet forward pass with multi-scale outputs"""
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
